@@ -1,46 +1,70 @@
-/**
- * Bridge between parent window (Chrome extension) and JupyterLite.
- * Listens for postMessage to load notebook content into the app.
- */
 (function () {
-  window.addEventListener("message", async function (e) {
-    if (!e.data) return;
+  console.log("[bridge] loaded, parent:", window.parent !== window);
+  if (window.parent === window) return;
+  var params = new URLSearchParams(window.location.search);
+  console.log("[bridge] path param:", params.get("path"));
+  if (params.get("path")) return;
 
-    if (e.data.type === "notebook-content") {
-      const notebook = e.data.content;
-      const name = e.data.name || "Untitled.ipynb";
+  window.addEventListener("message", function handler(e) {
+    console.log("[bridge] message received:", e.data?.type);
+    if (!e.data || e.data.type !== "notebook-content") return;
+    window.removeEventListener("message", handler);
 
-      // Wait for JupyterLite app to be ready
-      function waitForApp() {
-        return new Promise(function (resolve) {
-          (function check() {
-            var app = window.jupyterapp;
-            if (app && app.serviceManager && app.serviceManager.contents) {
-              resolve(app);
-            } else {
-              setTimeout(check, 200);
-            }
-          })();
-        });
-      }
+    var notebook = e.data.content;
+    var name = e.data.name || "Untitled.ipynb";
+    var now = new Date().toISOString();
+    var raw = JSON.stringify(notebook);
+    console.log("[bridge] saving notebook:", name, "size:", raw.length);
 
-      var app = await waitForApp();
-      var contents = app.serviceManager.contents;
+    var model = {
+      name: name,
+      path: name,
+      last_modified: now,
+      created: now,
+      format: "json",
+      mimetype: "application/x-ipynb+json",
+      content: notebook,
+      size: raw.length,
+      type: "notebook",
+      writable: true
+    };
 
-      // Save the notebook into JupyterLite's virtual filesystem
-      await contents.save(name, {
-        type: "notebook",
-        format: "json",
-        content: notebook,
-      });
+    var basePath = window.location.pathname.replace(/\/(notebooks|lab|tree)\/?.*$/, "/");
+    var dbName = "JupyterLite Storage - " + basePath;
+    console.log("[bridge] DB name:", dbName);
 
-      // Open it
-      app.commands.execute("docmanager:open", { path: name });
+    function tryWrite() {
+      var req = indexedDB.open(dbName);
+      req.onsuccess = function (ev) {
+        var db = ev.target.result;
+        console.log("[bridge] DB opened, stores:", Array.from(db.objectStoreNames));
+        if (!db.objectStoreNames.contains("keyvaluepairs")) {
+          console.log("[bridge] keyvaluepairs not found, retrying...");
+          db.close();
+          setTimeout(tryWrite, 300);
+          return;
+        }
+        var tx = db.transaction("keyvaluepairs", "readwrite");
+        var store = tx.objectStore("keyvaluepairs");
+        store.put(model, name);
+        tx.oncomplete = function () {
+          console.log("[bridge] saved! redirecting to ?path=" + name);
+          db.close();
+          window.location.search = "?path=" + encodeURIComponent(name);
+        };
+        tx.onerror = function (err) {
+          console.error("[bridge] tx error:", err);
+        };
+      };
+      req.onerror = function (err) {
+        console.error("[bridge] DB open error:", err);
+        setTimeout(tryWrite, 300);
+      };
     }
+
+    tryWrite();
   });
 
-  // Tell the parent we're ready
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: "jupyterlite-ready" }, "*");
-  }
+  console.log("[bridge] sending jupyterlite-ready");
+  window.parent.postMessage({ type: "jupyterlite-ready" }, "*");
 })();
