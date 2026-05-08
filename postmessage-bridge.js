@@ -3,7 +3,29 @@
   if (window.parent === window) return;
   var params = new URLSearchParams(window.location.search);
   console.log("[bridge] path param:", params.get("path"));
-  if (params.get("path")) return;
+
+  if (params.get("path")) {
+    // Notebook is open — watch for saves and relay back to parent
+    (function waitForApp() {
+      var app = window.jupyterapp;
+      if (!app || !app.serviceManager || !app.serviceManager.contents) {
+        setTimeout(waitForApp, 500);
+        return;
+      }
+      console.log("[bridge] app ready, watching for saves");
+      app.serviceManager.contents.fileChanged.connect(function (_, change) {
+        if (change.type === "save" && change.newValue) {
+          console.log("[bridge] save detected, posting to parent");
+          window.parent.postMessage({
+            type: "notebook-saved",
+            content: change.newValue.content,
+            name: change.newValue.name
+          }, "*");
+        }
+      });
+    })();
+    return;
+  }
 
   window.addEventListener("message", function handler(e) {
     console.log("[bridge] message received:", e.data?.type);
