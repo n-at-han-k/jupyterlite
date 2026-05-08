@@ -38,14 +38,14 @@
       req.onsuccess = function (ev) {
         var db = ev.target.result;
         console.log("[bridge] DB opened, stores:", Array.from(db.objectStoreNames));
-        if (!db.objectStoreNames.contains("keyvaluepairs")) {
-          console.log("[bridge] keyvaluepairs not found, retrying...");
+        if (!db.objectStoreNames.contains("files")) {
+          console.log("[bridge] files not found, retrying...");
           db.close();
           setTimeout(tryWrite, 300);
           return;
         }
-        var tx = db.transaction("keyvaluepairs", "readwrite");
-        var store = tx.objectStore("keyvaluepairs");
+        var tx = db.transaction("files", "readwrite");
+        var store = tx.objectStore("files");
         store.put(model, name);
         tx.oncomplete = function () {
           console.log("[bridge] saved! redirecting to ?path=" + name);
