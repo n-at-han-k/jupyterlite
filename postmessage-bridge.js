@@ -5,9 +5,10 @@
   console.log("[bridge] path param:", params.get("path"));
 
   if (params.get("path")) {
-    // Notebook is open — watch for saves and relay back to parent
+    console.log("[bridge] path mode, waiting for jupyterapp...");
     (function waitForApp() {
       var app = window.jupyterapp;
+      console.log("[bridge] polling jupyterapp:", !!app, !!app?.serviceManager, !!app?.serviceManager?.contents);
       if (!app || !app.serviceManager || !app.serviceManager.contents) {
         setTimeout(waitForApp, 500);
         return;
